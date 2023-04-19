@@ -1,14 +1,14 @@
 extends Camera2D
 
 # Configuration
-export(float) var MAX_ZOOM = 4
-export(float) var MIN_ZOOM = 0.16 
+@export var MAX_ZOOM: float = 4
+@export var MIN_ZOOM: float = 0.16 
 
-export(int,"disabled","pinch") var zoom_gesture = 1
-export(int,"disabled","twist") var rotation_gesture = 1
-export(int,"disabled","single_drag","multi_drag") var movement_gesture = 2
+@export var zoom_gesture = 1 # (int,"disabled","pinch")
+@export var rotation_gesture = 1 # (int,"disabled","twist")
+@export var movement_gesture = 2 # (int,"disabled","single_drag","multi_drag")
 
-func set_position(p):
+func set_camera_position(p):
 	var position_max_limit
 	var position_min_limit
 	var camera_size = get_camera_size()*zoom
@@ -41,7 +41,12 @@ func set_position(p):
 	return true
 
 
+var paused = false
 func _unhandled_input(e):
+	if e is InputEventKey and !e.pressed:
+		paused = !paused
+	# if not e is InputEventMouseMotion:
+	# 	print(e)
 	if (e is InputEventMultiScreenDrag and  movement_gesture == 2
 		or e is InputEventSingleScreenDrag and  movement_gesture == 1):
 		_move(e)
@@ -57,13 +62,16 @@ func camera2global(position):
 	return camera_center + (from_camera_center_pos*zoom).rotated(rotation)
 
 func _move(event):
-	set_position(position - (event.relative*zoom).rotated(rotation))
+	set_camera_position(position - (event.relative/zoom).rotated(rotation))
 
 func _zoom(event):
 	var li = event.distance
 	var lf = event.distance + event.relative
 	var zi = zoom.x
 	
+	# zf is target zom
+	# zi is current zoom
+	# zd is the differenec
 	var zf = (li*zi)/lf
 	if zf == 0: return
 	var zd = zf - zi
@@ -76,14 +84,24 @@ func _zoom(event):
 		zd = zf - zi
 	
 	var from_camera_center_pos = event.position - get_camera_center_offset()
+	get_node("../ColorRect").position = from_camera_center_pos
+	if (paused): return
+	
 	zoom = zf*Vector2.ONE
-	if(!set_position(position - (from_camera_center_pos*zd).rotated(rotation))):
+
+	# https://answers.unity.com/questions/399817/camera-zoom-while-keeping-an-off-center-object-at.html
+	# https://godotengine.org/qa/25983/camera2d-zoom-position-towards-the-mouse
+	var p = event.position 
+	var v = 0.5 * get_camera_size()
+	var next_cam_pos = position + ((p - v) / zi) + ((v - p) / zf)
+	if(!set_camera_position(next_cam_pos)):
 		zoom = zi*Vector2.ONE
+
 
 func _rotate(event):
 	var fccp = (event.position - get_camera_center_offset()) # from_camera_center_pos = fccp
 	var fccp_op_rot =  -fccp.rotated(event.relative)
-	set_position(position - ((fccp_op_rot + fccp)*zoom).rotated(rotation-event.relative))
+	set_camera_position(position - ((fccp_op_rot + fccp)*zoom).rotated(rotation-event.relative))
 	rotation -= event.relative
 
 func get_camera_center_offset():

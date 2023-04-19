@@ -62,7 +62,7 @@ signal multi_swipe
 signal multi_long_press
 signal pinch
 signal twist
-signal raw_gesture
+signal raw_gesture_signal
 signal any_gesture
 
 ########
@@ -115,11 +115,11 @@ func _ready() -> void:
 		_set_default_action("single_swipe_up_left"   , _native_key_event(KEY_Q))
 
 		# _set_default_action("single_touch"           , _native_mouse_button_event(BUTTON_LEFT))
-		_set_default_action("multi_touch"              , _native_mouse_button_event(BUTTON_MIDDLE))
+		_set_default_action("multi_touch"              , _native_mouse_button_event(MOUSE_BUTTON_MIDDLE))
 		# _set_default_action("pinch"                  , _native_mouse_button_event(BUTTON_RIGHT)) # TODO
-		_set_default_action("pinch_outward"            , _native_mouse_button_event(BUTTON_WHEEL_UP))
-		_set_default_action("pinch_inward"             , _native_mouse_button_event(BUTTON_WHEEL_DOWN))
-		_set_default_action("twist"                    , _native_mouse_button_event(BUTTON_RIGHT))
+		_set_default_action("pinch_outward"            , _native_mouse_button_event(MOUSE_BUTTON_WHEEL_UP))
+		_set_default_action("pinch_inward"             , _native_mouse_button_event(MOUSE_BUTTON_WHEEL_DOWN))
+		_set_default_action("twist"                    , _native_mouse_button_event(MOUSE_BUTTON_RIGHT))
 		# _set_default_action("twist_clockwise"        , _native_mouse_button_event(BUTTON_WHEEL_UP)) # TODO
 		# _set_default_action("twist_counterclockwise" , _native_mouse_button_event(BUTTON_WHEEL_DOWN)) # TODO
 
@@ -135,12 +135,12 @@ func _unhandled_input(event : InputEvent) -> void:
 		
 func _handle_mouse_motion(event : InputEventMouseMotion) -> void:
 	if raw_gesture.size() == 1 and _mouse_event == Gesture.SINGLE_DRAG:
-	  _emit("drag", _native_drag_event(0, event.position, event.relative, event.speed))
+		_emit("drag", _native_drag_event(0, event.position, event.relative, event.velocity))
 	elif raw_gesture.size() == 2 and _mouse_event == Gesture.MULTI_DRAG:
 			var offset = Vector2(5,5)
-			var e0 = _native_drag_event(0, event.position-offset, event.relative, event.speed)
+			var e0 = _native_drag_event(0, event.position-offset, event.relative, event.velocity)
 			raw_gesture._update_screen_drag(e0)
-			var e1 = _native_drag_event(1, event.position+offset, event.relative, event.speed)
+			var e1 = _native_drag_event(1, event.position+offset, event.relative, event.velocity)
 			raw_gesture._update_screen_drag(e1)
 			_emit("multi_drag", InputEventMultiScreenDrag.new(raw_gesture,e0))
 			_emit("multi_drag", InputEventMultiScreenDrag.new(raw_gesture,e1))
@@ -160,7 +160,7 @@ func _handle_screen_touch(event : InputEventScreenTouch) -> void:
 		return
 
 	raw_gesture._update_screen_touch(event)
-	_emit("raw_gesture", raw_gesture)
+	raw_gesture_signal.emit(raw_gesture)
 	var index : int = event.index
 	if event.pressed:
 		if raw_gesture.size() == 1: # First and only touch
@@ -184,23 +184,21 @@ func _handle_screen_touch(event : InputEventScreenTouch) -> void:
 		if raw_gesture.active_touches == 0: # last finger released
 			if _single_touch_cancelled:
 				var distance : float = (raw_gesture.centroid("releases","position") - raw_gesture.centroid("presses","position")).length()
-				if raw_gesture.elapsed_time < TAP_TIME_LIMIT and distance <= TAP_DISTANCE_LIMIT and\
-					 raw_gesture.is_consistent(TAP_DISTANCE_LIMIT, FINGER_SIZE*fingers) and\
-					 _released_together(raw_gesture, MULTI_FINGER_RELEASE_THRESHOLD):
+				if raw_gesture.elapsed_time < TAP_TIME_LIMIT and distance <= TAP_DISTANCE_LIMIT and raw_gesture.is_consistent(TAP_DISTANCE_LIMIT, FINGER_SIZE*fingers) and _released_together(raw_gesture, MULTI_FINGER_RELEASE_THRESHOLD):
 					_emit("multi_tap", InputEventMultiScreenTap.new(raw_gesture))
-				if raw_gesture.elapsed_time < SWIPE_TIME_LIMIT and distance > SWIPE_DISTANCE_THRESHOLD and\
-					 raw_gesture.is_consistent(FINGER_SIZE, FINGER_SIZE*fingers) and\
-					 _released_together(raw_gesture, MULTI_FINGER_RELEASE_THRESHOLD):
+				if raw_gesture.elapsed_time < SWIPE_TIME_LIMIT and distance > SWIPE_DISTANCE_THRESHOLD and raw_gesture.is_consistent(FINGER_SIZE, FINGER_SIZE*fingers) and _released_together(raw_gesture, MULTI_FINGER_RELEASE_THRESHOLD):
 					_emit("multi_swipe", InputEventMultiScreenSwipe.new(raw_gesture))
 			_end_gesture()
 		_cancel_single_drag()
 
 func _handle_screen_drag(event : InputEventScreenDrag) -> void:
 	raw_gesture._update_screen_drag(event)
-	_emit("raw_gesture", raw_gesture)
+	raw_gesture_signal.emit(raw_gesture)
 	if raw_gesture.drags.size() > 1:
+		print("MULTI DRAG")
 		_cancel_single_drag()
 		var gesture : int = _identify_gesture(raw_gesture)
+		prints("Gesture: ", gesture)
 		if gesture == Gesture.PINCH:
 			_emit("pinch", InputEventScreenPinch.new(raw_gesture, event))
 		elif gesture == Gesture.MULTI_DRAG:
@@ -208,6 +206,7 @@ func _handle_screen_drag(event : InputEventScreenDrag) -> void:
 		elif gesture == Gesture.TWIST:
 			_emit("twist",InputEventScreenTwist.new(raw_gesture, event))
 	else:
+		print("SINGLE DRAG")
 		if _single_drag_enabled:
 			_emit("single_drag", InputEventSingleScreenDrag.new(raw_gesture))
 		else:
@@ -315,8 +314,7 @@ func _on_long_press_timer_timeout() -> void:
 	var starts_centroid : Vector2    = raw_gesture.centroid("presses", "position")
 	var distance        : float      = (ends_centroid - starts_centroid).length()
 
-	if raw_gesture.releases.empty() and distance <= LONG_PRESS_DISTANCE_LIMIT and\
-		 raw_gesture.is_consistent(LONG_PRESS_DISTANCE_LIMIT, FINGER_SIZE*raw_gesture.size()):
+	if raw_gesture.releases.is_empty() and distance <= LONG_PRESS_DISTANCE_LIMIT and raw_gesture.is_consistent(LONG_PRESS_DISTANCE_LIMIT, FINGER_SIZE*raw_gesture.size()):
 		if _single_touch_cancelled:
 			_emit("multi_long_press", InputEventMultiScreenLongPress.new(raw_gesture))
 		else:
@@ -342,7 +340,7 @@ func _native_drag_event(index : int, position : Vector2, relative : Vector2, spe
 	native_drag.index = index
 	native_drag.position = position
 	native_drag.relative  = relative 
-	native_drag.speed    = speed
+	native_drag.velocity    = speed
 	return native_drag
 
 func _native_mouse_button_event(button : int) -> InputEventMouseButton:
@@ -352,7 +350,7 @@ func _native_mouse_button_event(button : int) -> InputEventMouseButton:
 
 func _native_key_event(key : int) -> InputEventKey:
 	var ev = InputEventKey.new()
-	ev.scancode = key
+	ev.keycode = key
 	return ev
 
 func _set_default_action(action : String, event : InputEvent) -> void:
@@ -364,5 +362,5 @@ func _set_default_action(action : String, event : InputEvent) -> void:
 func _add_timer(timer : Timer, func_name : String) -> void:
 	timer.one_shot = true
 	if func_name:
-		timer.connect("timeout", self, func_name)
+		timer.connect("timeout", Callable(self, func_name))
 	self.add_child(timer)

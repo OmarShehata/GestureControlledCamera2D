@@ -20,6 +20,7 @@ func _init(_raw_gesture : RawGesture = null, event : InputEventScreenDrag = null
 
 		var centroid_relative_position = event.position - position
 		relative = ((centroid_relative_position + event.relative).length() - centroid_relative_position.length())
+		relative *= -1
 
 
 func as_text() -> String:
